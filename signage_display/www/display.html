@@ -1,43 +1,82 @@
-{% extends "templates/includes/base.html" %}
+{% extends "templates/web.html" %}
+{# ─────────────────────────────────────────────────────────────────────────────
+   FIXES vs original:
+   1. `templates/web.html` — correct v15 base template
+      (old: "templates/includes/base.html" — does not exist in v15)
+   2. Swiper loaded from CDN with correct version — no Frappe desk dependency
+   3. frappe.csrf_token injected as a plain JS variable (frappe object is NOT
+      available on public web pages in v15)
+   4. frappe.call() removed — replaced with fetch() in display.js
+   5. frappe.realtime removed — replaced with setInterval polling in display.js
+   6. no_header / no_cache meta set to keep the page clean
+───────────────────────────────────────────────────────────────────────────── #}
 
-{% block title %}{{ signage_settings.display_name }}{% endblock %}
+{% block title %}{{ signage_settings.display_name or "Signage Display" }}{% endblock %}
 
-{% block styles %}
-<link rel="stylesheet" href="./display.css" />
+{% block head_include %}
+{# Swiper CSS — loaded from CDN, no Frappe desk bundle required #}
+<link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css"
+/>
+<link rel="stylesheet" href="/assets/signage_display/css/display.css" />
 {% endblock %}
 
-{% block body %}
+{% block header %}{% endblock %}
+{% block navbar %}{% endblock %}
 
-<div class="container-fluid p-0">
-    <div class="row d-flex justify-content-center">
-        <div class="col-md-9">
-            <div class="swiper">
-                <div class="swiper-wrapper" style="height: {{ signage_height }}vh !important;">
-                    {% for signage in signages %}
-                    <div class="swiper-slide" data-swiper-autoplay="{{ signage_settings.display_duration }}">
-                        <div class="card" style="height: {{ signage_height - 4 }}vh !important;">
-                            {% if signage.display_image %}
-                            <img src="{{ signage.display_image }}" class="card-img" />
-                            <div class="card-img-overlay p-5">
-                            {% else %}
-                            <div class="card-body p-5">
-                            {% endif %}
-                                {% if signage.show_title %}
-                                <h1 class="card-title">{{ signage.title }}</h1>
-                                {% endif %}
-                                {% if signage.description %}
-                                <p class="card-text">{{ signage.description }}</p>
-                                {% endif %}
-                            </div>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
+{% block page_content %}
+
+<div class="sd-wrapper">
+  <div class="swiper sd-swiper">
+    <div
+      class="swiper-wrapper"
+      style="height: {{ signage_height }}vh;"
+    >
+      {% for signage in signages %}
+      <div
+        class="swiper-slide"
+        data-swiper-autoplay="{{ signage_settings.display_duration }}"
+      >
+        <div class="card sd-card" style="height: {{ signage_height - 4 }}vh;">
+          {% if signage.display_image %}
+          <img src="{{ signage.display_image }}" class="card-img" alt="{{ signage.title }}" />
+          <div class="card-img-overlay p-5">
+          {% else %}
+          <div class="card-body p-5">
+          {% endif %}
+            {% if signage.show_title %}
+            <h1 class="card-title">{{ signage.title }}</h1>
+            {% endif %}
+            {% if signage.description %}
+            <p class="card-text">{{ signage.description }}</p>
+            {% endif %}
+          </div>
         </div>
+      </div>
+      {% endfor %}
     </div>
+    <div class="swiper-pagination"></div>
+  </div>
 </div>
 
-<script>frappe.csrf_token = "{{ frappe.session.csrf_token }}"</script>
+{#
+  Pass server-side values into JS as plain variables.
+  DO NOT use `frappe.csrf_token = ...` — the frappe JS object is NOT loaded
+  on public /www pages in Frappe v15.
+#}
+<script>
+  window._sd = {
+    csrfToken: "{{ csrf_token }}",
+    displayDuration: {{ signage_settings.display_duration or 20000 }},
+    rowCount: {{ signage_settings.row_count or 1 }},
+    columnCount: {{ signage_settings.column_count or 1 }},
+    signageHeight: {{ signage_height }}
+  };
+</script>
+
+{# Swiper JS — loaded from CDN #}
+<script src="https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js"></script>
+<script src="/assets/signage_display/js/display.js"></script>
 
 {% endblock %}
