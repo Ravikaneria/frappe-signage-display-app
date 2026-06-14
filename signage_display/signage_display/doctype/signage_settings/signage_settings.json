@@ -16,25 +16,41 @@
   {
    "fieldname": "display_name",
    "fieldtype": "Data",
-   "label": "Display Name"
+   "label": "Display Name",
+   "search_index": 0,
+   "no_copy": 0,
+   "bold": 0,
+   "hidden": 0
   },
   {
    "default": "20000",
    "fieldname": "display_duration",
    "fieldtype": "Int",
-   "label": "Individual Signage Display Duration (ms)"
+   "label": "Individual Signage Display Duration (ms)",
+   "search_index": 0,
+   "no_copy": 0,
+   "bold": 0,
+   "hidden": 0
   },
   {
    "default": "1",
    "fieldname": "row_count",
    "fieldtype": "Int",
-   "label": "Display Row Count"
+   "label": "Display Row Count",
+   "search_index": 0,
+   "no_copy": 0,
+   "bold": 0,
+   "hidden": 0
   },
   {
    "default": "1",
    "fieldname": "column_count",
    "fieldtype": "Int",
-   "label": "Display Column Count"
+   "label": "Display Column Count",
+   "search_index": 0,
+   "no_copy": 0,
+   "bold": 0,
+   "hidden": 0
   }
  ],
  "index_web_pages_for_search": 1,
@@ -66,5 +82,8 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 0,
+ "in_create": 0,
+ "migration_hash": null
 }
