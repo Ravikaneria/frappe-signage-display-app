@@ -21,29 +21,49 @@
    "in_list_view": 1,
    "label": "Title",
    "reqd": 1,
-   "unique": 1
+   "unique": 1,
+   "search_index": 0,
+   "no_copy": 0,
+   "bold": 0,
+   "hidden": 0
   },
   {
    "default": "0",
    "fieldname": "published",
    "fieldtype": "Check",
-   "label": "Published"
+   "label": "Published",
+   "search_index": 0,
+   "no_copy": 0,
+   "bold": 0,
+   "hidden": 0
   },
   {
    "default": "1",
    "fieldname": "show_title",
    "fieldtype": "Check",
-   "label": "Show Title"
+   "label": "Show Title",
+   "search_index": 0,
+   "no_copy": 0,
+   "bold": 0,
+   "hidden": 0
   },
   {
    "fieldname": "description",
    "fieldtype": "Text Editor",
-   "label": "Description"
+   "label": "Description",
+   "search_index": 0,
+   "no_copy": 0,
+   "bold": 0,
+   "hidden": 0
   },
   {
    "fieldname": "display_image",
    "fieldtype": "Attach Image",
-   "label": "Display Image"
+   "label": "Display Image",
+   "search_index": 0,
+   "no_copy": 0,
+   "bold": 0,
+   "hidden": 0
   }
  ],
  "index_web_pages_for_search": 1,
@@ -79,5 +99,8 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 0,
+ "in_create": 0,
+ "migration_hash": null
 }
