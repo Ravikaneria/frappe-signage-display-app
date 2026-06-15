@@ -6,9 +6,8 @@ from frappe.model.document import Document
 class Screen(Document):
 
     def before_insert(self):
-        # Generate a short unique token if not already set
         if not self.screen_id:
-            self.screen_id = uuid.uuid4().hex[:12].upper()  # e.g. "A3F9C2B1D4E7"
+            self.screen_id = uuid.uuid4().hex[:12].upper()
 
     def after_insert(self):
         self._refresh_display_url()
@@ -20,14 +19,13 @@ class Screen(Document):
         site_url = frappe.utils.get_url()
         url = f"{site_url}/display/{self.screen_id}"
         if self.display_url != url:
-            frappe.db.set_value("Screen", self.name, "display_url", url, update_modified=False)
+            frappe.db.set_value(
+                "Screen", self.name, "display_url", url, update_modified=False
+            )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Scheduled job — called every minute by the Frappe scheduler
-# Any screen that hasn't sent a heartbeat in the last 90 seconds → offline
-# ─────────────────────────────────────────────────────────────────────────────
 def mark_screens_offline():
+    """Scheduler: runs every minute. Marks screens offline if no heartbeat for 90s."""
     cutoff = frappe.utils.add_to_date(frappe.utils.now_datetime(), seconds=-90)
     frappe.db.sql(
         """
@@ -41,26 +39,19 @@ def mark_screens_offline():
     frappe.db.commit()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Bulk-generate Screen records (called from ERPNext UI button)
-# ─────────────────────────────────────────────────────────────────────────────
 @frappe.whitelist()
 def generate_screens(count=50, prefix="Screen"):
-    """
-    Creates Screen records numbered Screen-01 ... Screen-<count>.
-    Skips any that already exist. Maximum 50 screens.
-    """
+    """Bulk-create Screen records. Called from the Screen List button."""
     count = min(int(count), 50)
     created = []
-
     for i in range(1, count + 1):
         name = f"{prefix}-{str(i).zfill(2)}"
         if frappe.db.exists("Screen", {"screen_name": name}):
             continue
-
         doc = frappe.new_doc("Screen")
         doc.screen_name = name
         doc.is_active = 1
+        doc.show_all_signages = 1
         doc.insert(ignore_permissions=True)
         created.append({
             "name": doc.name,
@@ -68,6 +59,5 @@ def generate_screens(count=50, prefix="Screen"):
             "screen_name": doc.screen_name,
             "display_url": doc.display_url,
         })
-
     frappe.db.commit()
     return {"created": len(created), "screens": created}
