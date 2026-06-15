@@ -1,181 +1,156 @@
 /**
  * display.js — Signage Display Player
- *
- * FIXES vs original:
- *  1. frappe.call()     → fetch() with X-Frappe-CSRF-Token header
- *  2. frappe.realtime   → setInterval polling every 30 seconds
- *  3. autoPlay          → autoplay  (Swiper property was wrongly capitalised)
- *  4. All config read from window._sd (set by the Jinja template server-side)
- *     so no extra API call is needed just for settings on first load.
+ * Supports: Image · Video (MP4/WebM) · YouTube · Text Only
+ * Multi-screen via /display/<screen_id>
+ * Heartbeat keeps Screen "Live Now" status updated in ERPNext
  */
-
 "use strict";
 
-// ─── Config injected by display.html (Jinja → window._sd) ────────────────────
 const SD = window._sd || {};
-
-const API_GET_SIGNAGES =
-  "/api/method/signage_display.signage_display.doctype.signage.signage.get_all_signages";
-
-// How often to poll for new/updated signages (ms). 30 s is a good balance.
+const SCREEN_ID        = SD.screenId || "";
 const POLL_INTERVAL_MS = 30_000;
+const HEARTBEAT_MS     = 30_000;
 
-// ─── State ────────────────────────────────────────────────────────────────────
+const API_ALL      = "/api/method/signage_display.signage_display.doctype.signage.signage.get_all_signages";
+const API_SCREEN   = "/api/method/signage_display.signage_display.doctype.signage.signage.get_signages_for_screen";
+const API_HB       = "/api/method/signage_display.signage_display.doctype.signage.signage.screen_heartbeat";
+
 let swiper = null;
+let _lastJson = null;
 
-// ─── Bootstrap ────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-  initSwiper();
-  startPolling();
+    initSwiper();
+    startPolling();
+    if (SCREEN_ID) startHeartbeat();
 });
 
-// ─── Swiper initialisation ────────────────────────────────────────────────────
 function initSwiper() {
-  swiper = new Swiper(".sd-swiper", {
-    speed: 2000,
-    direction: "horizontal",
-
-    // FIX: was `autoPlay` (wrong case) — Swiper uses `autoplay` (lowercase)
-    autoplay: {
-      delay: SD.displayDuration || 20000,
-      disableOnInteraction: false,
-    },
-
-    slidesPerView: SD.columnCount || 1,
-    grid: {
-      rows: SD.rowCount || 1,
-      fill: "row",
-    },
-    spaceBetween: 20,
-    pagination: {
-      el: ".swiper-pagination",
-      clickable: true,
-    },
-    loop: false,
-  });
-
-  // Restart autoplay if it ever stops (e.g. user interaction)
-  swiper.on("autoplayStop", () => swiper.autoplay.start());
+    swiper = new Swiper(".sd-swiper", {
+        speed: 1500,
+        direction: "horizontal",
+        autoplay: {
+            delay: SD.displayDuration || 20000,
+            disableOnInteraction: false,
+        },
+        slidesPerView: SD.columnCount || 1,
+        grid: { rows: SD.rowCount || 1, fill: "row" },
+        spaceBetween: 20,
+        pagination: { el: ".swiper-pagination", clickable: true },
+        loop: false,
+    });
+    swiper.on("autoplayStop", () => swiper.autoplay.start());
+    swiper.on("slideChangeTransitionEnd", handleActiveSlide);
 }
 
-// ─── API helpers (plain fetch — no frappe.call dependency) ───────────────────
+function handleActiveSlide() {
+    if (!swiper) return;
+    document.querySelectorAll(".sd-video").forEach(v => { v.pause(); v.currentTime = 0; });
+    const slide = swiper.slides[swiper.activeIndex];
+    if (!slide) return;
+    const video = slide.querySelector("video.sd-video");
+    if (video) {
+        swiper.autoplay.stop();
+        video.currentTime = 0;
+        video.play().catch(() => {});
+        video.onended = () => { video.onended = null; goNext(); };
+        const maxWait = parseInt(slide.dataset.swiperAutoplay) || (SD.displayDuration || 20000);
+        setTimeout(() => { if (!video.ended) { video.onended = null; goNext(); } }, maxWait);
+    }
+}
 
-/**
- * Fetches all published signages from the whitelisted API method.
- * Returns an array of signage objects, or null on error.
- */
+function goNext() {
+    if (!swiper) return;
+    const isLast = swiper.activeIndex >= swiper.slides.length - 1;
+    isLast ? swiper.slideTo(0, 800) : swiper.slideNext(800);
+    swiper.autoplay.start();
+}
+
 async function fetchSignages() {
-  try {
-    const res = await fetch(API_GET_SIGNAGES, {
-      method: "GET",
-      headers: {
-        // FIX: frappe.csrf_token is NOT available on public pages in v15.
-        //      We read it from window._sd.csrfToken (set by the Jinja template).
-        "X-Frappe-CSRF-Token": SD.csrfToken || "Guest",
-        Accept: "application/json",
-      },
-    });
+    try {
+        const url = SCREEN_ID
+            ? `${API_SCREEN}?screen_id=${encodeURIComponent(SCREEN_ID)}`
+            : API_ALL;
+        const res = await fetch(url, {
+            headers: { "X-Frappe-CSRF-Token": SD.csrfToken || "Guest", Accept: "application/json" },
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data.message || [];
+    } catch { return null; }
+}
 
-    if (!res.ok) {
-      console.error("[SignageDisplay] API error:", res.status, res.statusText);
-      return null;
+async function sendHeartbeat() {
+    if (!SCREEN_ID) return;
+    try {
+        await fetch(`${API_HB}?screen_id=${encodeURIComponent(SCREEN_ID)}`, {
+            method: "POST",
+            headers: { "X-Frappe-CSRF-Token": SD.csrfToken || "Guest", "Content-Type": "application/json" },
+            body: JSON.stringify({ screen_id: SCREEN_ID }),
+        });
+    } catch {}
+}
+
+function buildSlide(s) {
+    const type     = (s.content_type || "Image");
+    const height   = (SD.signageHeight || 76) - 4;
+    const duration = s.display_duration ? s.display_duration * 1000 : (SD.displayDuration || 20000);
+    const titleHtml = s.show_title ? `<h1 class="card-title">${esc(s.title)}</h1>` : "";
+    const descHtml  = s.description  ? `<p class="card-text">${s.description}</p>` : "";
+    let inner = "";
+
+    if (type === "Image") {
+        inner = s.display_image
+            ? `<img src="${esc(s.display_image)}" class="card-img sd-img" alt="${esc(s.title)}" />
+               <div class="card-img-overlay p-5">${titleHtml}${descHtml}</div>`
+            : `<div class="card-body p-5">${titleHtml}${descHtml}</div>`;
+    } else if (type === "Video") {
+        inner = `<video class="sd-video" src="${esc(s.video_file)}" muted playsinline data-slide-video="1"></video>
+                 ${(titleHtml||descHtml) ? `<div class="card-img-overlay p-5">${titleHtml}${descHtml}</div>` : ""}`;
+    } else if (type === "YouTube") {
+        inner = `<iframe class="sd-youtube" src="${esc(s.youtube_embed_url)}"
+                   allow="autoplay; encrypted-media; fullscreen" allowfullscreen frameborder="0"></iframe>`;
+    } else {
+        inner = `<div class="card-body p-5 sd-text-only">${titleHtml}<div class="card-text">${s.description||""}</div></div>`;
     }
 
-    const data = await res.json();
-    return data.message || [];
-  } catch (err) {
-    console.error("[SignageDisplay] Fetch error:", err);
-    return null;
-  }
+    return `<div class="swiper-slide" data-swiper-autoplay="${duration}">
+              <div class="card sd-card" style="height:${height}vh;">${inner}</div>
+            </div>`;
 }
 
-// ─── Slide management ─────────────────────────────────────────────────────────
-
-/**
- * Replaces all slides in the Swiper instance with freshly fetched signages.
- * Only re-renders if the data has actually changed (compares JSON).
- */
-let _lastSignagesJson = null;
+function buildEmptySlide() {
+    const h = (SD.signageHeight || 76) - 4;
+    return `<div class="swiper-slide">
+              <div class="card sd-card" style="height:${h}vh;">
+                <div class="card-body p-5 d-flex align-items-center justify-content-center">
+                  <p style="color:#888;">No published signages yet.</p>
+                </div>
+              </div>
+            </div>`;
+}
 
 async function refreshSignages() {
-  const signages = await fetchSignages();
-  if (!signages) return; // network error — keep existing slides
-
-  const json = JSON.stringify(signages);
-  if (json === _lastSignagesJson) return; // nothing changed
-  _lastSignagesJson = json;
-
-  const signageHeight = SD.signageHeight || 76;
-
-  swiper.autoplay.stop();
-  swiper.removeAllSlides();
-
-  if (signages.length === 0) {
-    swiper.appendSlide(buildEmptySlide(signageHeight));
-  } else {
-    signages.forEach((s) => swiper.appendSlide(buildSlide(s, signageHeight)));
-  }
-
-  swiper.update();
-  swiper.slideTo(0, 0); // jump back to first slide
-  swiper.autoplay.start();
+    const signages = await fetchSignages();
+    if (!signages) return;
+    const json = JSON.stringify(signages);
+    if (json === _lastJson) return;
+    _lastJson = json;
+    const prev = swiper ? swiper.activeIndex : 0;
+    swiper.autoplay.stop();
+    swiper.removeAllSlides();
+    signages.length === 0
+        ? swiper.appendSlide(buildEmptySlide())
+        : signages.forEach(s => swiper.appendSlide(buildSlide(s)));
+    swiper.update();
+    swiper.slideTo(Math.min(prev, swiper.slides.length - 1), 0);
+    swiper.autoplay.start();
+    handleActiveSlide();
 }
 
-function buildSlide(signage, height) {
-  const titleHtml = signage.show_title
-    ? `<h1 class="card-title">${escapeHtml(signage.title)}</h1>`
-    : "";
+function startPolling()   { refreshSignages(); setInterval(refreshSignages, POLL_INTERVAL_MS); }
+function startHeartbeat() { sendHeartbeat();   setInterval(sendHeartbeat,   HEARTBEAT_MS); }
 
-  const descHtml = signage.description
-    ? `<p class="card-text">${signage.description}</p>`
-    : "";
-
-  const innerHtml = signage.display_image
-    ? `<img src="${escapeHtml(signage.display_image)}" class="card-img" alt="${escapeHtml(signage.title)}" />
-       <div class="card-img-overlay p-5">${titleHtml}${descHtml}</div>`
-    : `<div class="card-body p-5">${titleHtml}${descHtml}</div>`;
-
-  return `
-    <div class="swiper-slide" data-swiper-autoplay="${SD.displayDuration || 20000}">
-      <div class="card sd-card" style="height:${height - 4}vh;">
-        ${innerHtml}
-      </div>
-    </div>`;
-}
-
-function buildEmptySlide(height) {
-  return `
-    <div class="swiper-slide">
-      <div class="card sd-card" style="height:${height - 4}vh;">
-        <div class="card-body p-5 d-flex align-items-center justify-content-center">
-          <p class="text-muted">No published signages yet.</p>
-        </div>
-      </div>
-    </div>`;
-}
-
-// ─── Polling (replaces frappe.realtime / Socket.IO) ──────────────────────────
-
-/**
- * FIX: frappe.realtime.on() is a Desk-only feature and is NOT available on
- * public /www pages in Frappe v15.
- *
- * We replace it with a simple setInterval poll.  30 seconds means the display
- * will pick up changes within half a minute — perfectly fine for signage.
- * If you need near-instant updates, see the README note on WebSockets.
- */
-function startPolling() {
-  // Fetch immediately on load, then every POLL_INTERVAL_MS
-  refreshSignages();
-  setInterval(refreshSignages, POLL_INTERVAL_MS);
-}
-
-// ─── Utility ──────────────────────────────────────────────────────────────────
-function escapeHtml(str) {
-  if (!str) return "";
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function esc(str) {
+    if (!str) return "";
+    return str.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
