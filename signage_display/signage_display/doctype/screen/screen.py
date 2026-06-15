@@ -6,8 +6,9 @@ from frappe.model.document import Document
 class Screen(Document):
 
     def before_insert(self):
+        # Auto-generate the screen_id token — user never has to type it
         if not self.screen_id:
-            self.screen_id = uuid.uuid4().hex[:12].upper()
+            self.screen_id = uuid.uuid4().hex[:12].upper()  # e.g. A3F9C2B1D4E7
 
     def after_insert(self):
         self._refresh_display_url()
@@ -19,11 +20,13 @@ class Screen(Document):
         site_url = frappe.utils.get_url()
         url = f"{site_url}/display/{self.screen_id}"
         if self.display_url != url:
-            frappe.db.set_value("Screen", self.name, "display_url", url, update_modified=False)
+            frappe.db.set_value(
+                "Screen", self.name, "display_url", url, update_modified=False
+            )
 
 
 def mark_screens_offline():
-    """Scheduled: runs every minute. Marks screens offline if no heartbeat for 90s."""
+    """Scheduler: runs every minute. Marks screens offline if no heartbeat for 90s."""
     cutoff = frappe.utils.add_to_date(frappe.utils.now_datetime(), seconds=-90)
     frappe.db.sql(
         """
@@ -39,9 +42,10 @@ def mark_screens_offline():
 
 @frappe.whitelist()
 def generate_screens(count=50, prefix="Screen"):
-    """Bulk-create Screen records. Called from the Screen list button."""
+    """Bulk-create Screen records. Called from the Screen List button."""
     count = min(int(count), 50)
     created = []
+
     for i in range(1, count + 1):
         name = f"{prefix}-{str(i).zfill(2)}"
         if frappe.db.exists("Screen", {"screen_name": name}):
@@ -56,5 +60,6 @@ def generate_screens(count=50, prefix="Screen"):
             "screen_name": doc.screen_name,
             "display_url": doc.display_url,
         })
+
     frappe.db.commit()
     return {"created": len(created), "screens": created}
