@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 0,
- "autoname": "field:screen_id",
+ "autoname": "naming_series:",
  "creation": "2026-06-16 00:00:00.000000",
  "default_view": "List",
  "doctype": "DocType",
@@ -26,10 +26,9 @@
    "in_list_view": 1,
    "label": "Screen ID",
    "read_only": 1,
-   "reqd": 1,
    "unique": 1,
    "bold": 1,
-   "description": "Auto-generated unique token used in the display URL."
+   "description": "Auto-generated on save. Used in the display URL."
   },
   {
    "fieldname": "screen_name",
@@ -88,7 +87,7 @@
   }
  ],
  "icon": "fa fa-tv",
- "in_create": 1,
+ "in_create": 0,
  "links": [],
  "modified": "2026-06-16 00:00:00.000000",
  "modified_by": "Administrator",
@@ -113,7 +112,6 @@
  "sort_order": "DESC",
  "states": [],
  "track_changes": 1,
- "in_create": 0,
- "migration_hash": null
+ "migration_hash": null,
+ "naming_series": "SCR-.#####"
 }
-
