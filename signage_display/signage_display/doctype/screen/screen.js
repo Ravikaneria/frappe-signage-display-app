@@ -1,73 +1,40 @@
-// Client Script — Screen List
-frappe.listview_settings["Screen"] = {
-    add_fields: ["is_live", "last_seen", "screen_name", "display_url", "is_active"],
-    get_indicator: function(doc) {
-        if (!doc.is_active) return [__("Inactive"), "red",   "is_active,=,0"];
-        if (doc.is_live)    return [__("Live"),     "green", "is_live,=,1"];
-        return                     [__("Offline"),  "grey",  "is_live,=,0"];
-    },
-    onload: function(listview) {
-        listview.page.add_action_item(__("Generate 50 Screens"), function() {
-            frappe.confirm(
-                "This will create Screen-01 to Screen-50. Existing screens are skipped. Proceed?",
-                function() {
-                    frappe.call({
-                        method: "signage_display.signage_display.doctype.screen.screen.generate_screens",
-                        args: { count: 50, prefix: "Screen" },
-                        freeze: true,
-                        freeze_message: "Generating screens...",
-                        callback: function(r) {
-                            if (r.message) {
-                                frappe.msgprint({
-                                    title: "Done",
-                                    indicator: "green",
-                                    message: `Created ${r.message.created} new screen(s).`
-                                });
-                                listview.refresh();
-                            }
-                        }
-                    });
-                }
-            );
-        });
-
-        listview.page.add_action_item(__("Copy Selected URLs"), function() {
-            const selected = listview.get_checked_items();
-            if (!selected.length) {
-                frappe.show_alert({ message: "Select at least one row first.", indicator: "orange" });
-                return;
-            }
-            const text = selected.map(d => `${d.screen_name}: ${d.display_url}`).join("\n");
-            navigator.clipboard.writeText(text).then(() => {
-                frappe.show_alert({ message: `Copied ${selected.length} URL(s)!`, indicator: "green" });
-            });
-        });
-    },
-};
-
-// Client Script — Screen Form
-frappe.ui.form.on("Screen", {
+// Client Script — Signage Form
+frappe.ui.form.on("Signage", {
     refresh: function(frm) {
-        if (frm.doc.is_live) {
-            const since = frm.doc.last_seen
-                ? " · Last seen: " + frappe.datetime.prettyDate(frm.doc.last_seen) : "";
-            frm.dashboard.set_headline_alert(
-                `<span style="color:green;font-weight:bold;">🟢 Live Now${since}</span>`
-            );
-        } else if (frm.doc.last_seen) {
-            frm.dashboard.set_headline_alert(
-                `<span style="color:#888;">⚫ Offline · Last seen: ${frappe.datetime.prettyDate(frm.doc.last_seen)}</span>`
-            );
+        frm.trigger("content_type");
+    },
+    content_type: function(frm) {
+        const t = frm.doc.content_type || "Image";
+        frm.toggle_display("display_image",     t === "Image");
+        frm.toggle_display("video_file",        t === "Video");
+        frm.toggle_display("youtube_url",       t === "YouTube");
+        frm.toggle_display("youtube_embed_url", t === "YouTube");
+        frm.toggle_display("display_duration",  t !== "Video");
+    },
+    youtube_url: function(frm) {
+        const url = frm.doc.youtube_url || "";
+        if (!url) return;
+        const m = url.match(
+            /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([A-Za-z0-9_-]{11})/
+        );
+        if (m) {
+            const id = m[1];
+            const embed =
+                `https://www.youtube.com/embed/${id}` +
+                `?autoplay=1&mute=1&loop=1&playlist=${id}` +
+                `&controls=0&modestbranding=1&rel=0&enablejsapi=1`;
+            frm.set_value("youtube_embed_url", embed);
+            frappe.show_alert({ message: `YouTube ID detected: ${id}`, indicator: "green" });
+        } else {
+            frappe.show_alert({ message: "Could not detect YouTube video ID — check the URL", indicator: "orange" });
         }
-        if (frm.doc.display_url) {
-            frm.add_custom_button(__("Open Display"), function() {
-                window.open(frm.doc.display_url, "_blank");
-            }, __("Actions"));
-            frm.add_custom_button(__("Copy URL"), function() {
-                navigator.clipboard.writeText(frm.doc.display_url).then(() => {
-                    frappe.show_alert({ message: "URL copied!", indicator: "green" });
-                });
-            }, __("Actions"));
+    },
+    display_image: function(frm) {
+        if (frm.doc.display_image) {
+            frappe.show_alert({
+                message: "Image will be auto-resized to max 1920x1080 on save",
+                indicator: "blue",
+            });
         }
     },
 });
