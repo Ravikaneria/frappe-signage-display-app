@@ -6,9 +6,8 @@ from frappe.model.document import Document
 class Screen(Document):
 
     def before_insert(self):
-        # Auto-generate the screen_id token — user never has to type it
         if not self.screen_id:
-            self.screen_id = uuid.uuid4().hex[:12].upper()  # e.g. A3F9C2B1D4E7
+            self.screen_id = uuid.uuid4().hex[:12].upper()
 
     def after_insert(self):
         self._refresh_display_url()
@@ -45,7 +44,6 @@ def generate_screens(count=50, prefix="Screen"):
     """Bulk-create Screen records. Called from the Screen List button."""
     count = min(int(count), 50)
     created = []
-
     for i in range(1, count + 1):
         name = f"{prefix}-{str(i).zfill(2)}"
         if frappe.db.exists("Screen", {"screen_name": name}):
@@ -53,6 +51,7 @@ def generate_screens(count=50, prefix="Screen"):
         doc = frappe.new_doc("Screen")
         doc.screen_name = name
         doc.is_active = 1
+        doc.show_all_signages = 1
         doc.insert(ignore_permissions=True)
         created.append({
             "name": doc.name,
@@ -60,6 +59,5 @@ def generate_screens(count=50, prefix="Screen"):
             "screen_name": doc.screen_name,
             "display_url": doc.display_url,
         })
-
     frappe.db.commit()
     return {"created": len(created), "screens": created}
