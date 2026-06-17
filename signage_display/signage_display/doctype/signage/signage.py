@@ -57,11 +57,7 @@ class Signage(Document):
                 img = img.copy()
                 img.thumbnail((MAX_W, MAX_H), PILImage.LANCZOS)
                 fmt = img.format or "JPEG"
-                save_kwargs = {}
-                if fmt in ("JPEG", "JPG"):
-                    save_kwargs = {"quality": 88, "optimize": True}
-                elif fmt == "PNG":
-                    save_kwargs = {"optimize": True}
+                save_kwargs = {"quality": 88, "optimize": True} if fmt in ("JPEG","JPG") else ({"optimize": True} if fmt == "PNG" else {})
                 img.save(abs_path, format=fmt, **save_kwargs)
             frappe.msgprint(
                 f"Image resized from {orig_w}x{orig_h} to {img.size[0]}x{img.size[1]}",
@@ -79,9 +75,35 @@ class Signage(Document):
         pass
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  SHARED HELPER
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _format_signage(row, site_url, duration_override_ms=None):
+    """Convert a Signage db row into the dict the player expects."""
+    item = dict(row)
+
+    # Use per-screen duration override if provided, else the signage's own value,
+    # else the player will fall back to the global Signage Settings value (duration=0)
+    if duration_override_ms is not None:
+        item["display_duration"] = duration_override_ms
+    else:
+        item["display_duration"] = (item.get("display_duration") or 0) * 1000
+
+    if item.get("display_image"):
+        item["display_image"] = site_url + item["display_image"]
+    if item.get("video_file"):
+        item["video_file"] = site_url + item["video_file"]
+    return item
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  API  — all published signages  (legacy /display URL or show_all_signages=1)
+# ─────────────────────────────────────────────────────────────────────────────
+
 @frappe.whitelist(allow_guest=True)
 def get_all_signages():
-    """Returns all published signages. Called by display.js every 30s."""
+    """Returns all published signages. Called by display.js when no screen_id."""
     site_url = frappe.utils.get_url()
     rows = frappe.db.get_list(
         "Signage",
@@ -92,35 +114,83 @@ def get_all_signages():
             "display_image", "video_file", "youtube_embed_url",
         ],
     )
-    result = []
-    for r in rows:
-        item = dict(r)
-        if item.get("display_image"):
-            item["display_image"] = site_url + item["display_image"]
-        if item.get("video_file"):
-            item["video_file"] = site_url + item["video_file"]
-        result.append(item)
-    return result
+    return [_format_signage(r, site_url) for r in rows]
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  API  — signages for a specific screen
+# ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist(allow_guest=True)
 def get_signages_for_screen(screen_id):
-    """Returns published signages for a specific screen. Records heartbeat."""
+    """
+    Returns the correct signage list for a screen:
+      - If show_all_signages = 1  →  all published signages (same as get_all_signages)
+      - If show_all_signages = 0  →  only the signages in the Screen's child table,
+                                     in the order they were added, active rows only
+    Also records the heartbeat so ERPNext shows the screen as Live Now.
+    """
     screen = frappe.db.get_value(
         "Screen",
         {"screen_id": screen_id, "is_active": 1},
-        ["name", "screen_name"],
+        ["name", "screen_name", "show_all_signages"],
         as_dict=True,
     )
     if not screen:
-        frappe.throw(f"Screen '{screen_id}' not found or inactive", frappe.DoesNotExistError)
-    _record_heartbeat(screen_id)
-    return get_all_signages()
+        frappe.throw(
+            f"Screen '{screen_id}' not found or inactive.",
+            frappe.DoesNotExistError
+        )
 
+    _record_heartbeat(screen_id)
+
+    site_url = frappe.utils.get_url()
+
+    # ── Show all published signages ──────────────────────────────────────────
+    if screen.show_all_signages:
+        return get_all_signages()
+
+    # ── Show only assigned signages ──────────────────────────────────────────
+    assigned = frappe.get_all(
+        "Screen Signage Item",
+        filters={"parent": screen.name, "is_active": 1},
+        fields=["signage", "duration_override"],
+        order_by="idx asc",
+    )
+
+    if not assigned:
+        # No signages assigned yet — return empty so player shows "No content"
+        return []
+
+    result = []
+    for item in assigned:
+        row = frappe.db.get_value(
+            "Signage",
+            {"name": item.signage, "published": 1},
+            [
+                "title", "description", "show_title",
+                "content_type", "display_duration",
+                "display_image", "video_file", "youtube_embed_url",
+            ],
+            as_dict=True,
+        )
+        if not row:
+            continue  # signage not published or deleted — skip
+
+        # Per-row duration override (convert seconds → ms; 0 means use signage default)
+        override_ms = (item.duration_override * 1000) if item.duration_override else None
+        result.append(_format_signage(row, site_url, override_ms))
+
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  HEARTBEAT
+# ─────────────────────────────────────────────────────────────────────────────
 
 @frappe.whitelist(allow_guest=True)
 def screen_heartbeat(screen_id):
-    """Called every 30s by the player to mark the screen as Live Now."""
+    """Called every 30s by the player to mark the screen as Live Now in ERPNext."""
     _record_heartbeat(screen_id)
     return {"status": "ok"}
 
